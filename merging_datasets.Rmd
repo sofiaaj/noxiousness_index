@@ -1,0 +1,344 @@
+
+```{r, comments=FALSE}
+library(ggplot2)
+library(dplyr)
+library(RCurl)
+library("readxl")
+```
+
+Pulse variables
+
+w22 -> January 6 - January 18
+w23 -> January 20 - February 1
+w24 -> February 3 - February 15
+w25 -> February 17 - March 1
+w26 -> March 3 - March 15
+
+```{r}
+w22 <- read.csv("Phase3/pulse2021_puf_22.csv")
+w23 <- read.csv("Phase3/pulse2021_puf_23.csv")
+w24 <- read.csv("Phase3/pulse2021_puf_24.csv")
+w25 <- read.csv("Phase3/pulse2021_puf_25.csv")
+w26 <- read.csv("Phase3/pulse2021_puf_26.csv")
+```
+
+```{r}
+pulse <- rbind(w22,w23,w24,w25,w26)
+```
+
+```{r}
+state_codes <- read.csv("state_codes.csv")
+pulse <- merge(pulse,state_codes,by="EST_ST")
+```
+
+##Variables to add:##
+
+Covid rates in the state (Done)
+Vaccination rates in the state (Done)
+Unemployment rate in state (Done)
+
+Vaccination rate by demographic (Done)
+Covid rates by demographic 
+
+
+Unemployment rate in industry
+Covid rates in the county
+Vaccination rates in the county
+Unemployment rate in county
+
+
+###Covid rates in the state###
+
+```{r}
+x <- getURL("https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv")
+covid_time_series <- read.csv(text = x)
+```
+
+```{r}
+cols = ncol(covid_time_series)
+limit = cols-13
+for(i in 0:limit){
+  curr = cols - i
+  covid_time_series[,curr] = covid_time_series[,curr] - covid_time_series[,(curr-1)]
+}
+```
+
+```{r}
+covid_time_series_state <- covid_time_series %>% select(-FIPS, -Admin2, -UID, -iso2, -iso3, -code3, -Country_Region, -Lat, -Long_, -Combined_Key)
+```
+
+Getting the overall counts per day of new cases by state:
+
+```{r}
+covid_time_series_state <- covid_time_series_state %>% group_by(Province_State) %>% summarise_all(funs(sum))
+covid_time_series_state <- covid_time_series_state %>% rename(State = Province_State)
+```
+
+Second strategy, use total population per state to get a count per 100,000:
+
+```{r}
+population_state <- read.csv("nst-est2019-01.csv",stringsAsFactors = FALSE)
+```
+
+```{r}
+covid_time_series_state <- merge(covid_time_series_state,population_state,by="State")
+covid_time_series_state$Population <- as.numeric((gsub(",","",covid_time_series_state$Population,fixed=TRUE)))
+```
+
+```{r}
+cols = ncol(covid_time_series_state) - 1
+for(i in 0:(cols-2)){
+  curr = cols - i
+  covid_time_series_state[,curr] = (covid_time_series_state[,curr]*100000) / covid_time_series_state$Population
+}
+```
+
+```{r}
+covid_time_series_state <- covid_time_series_state %>% select(-Population)
+```
+
+Get seven day average:
+
+```{r}
+cols = ncol(covid_time_series_state)
+for(i in 0:(cols-8)){
+  curr = cols-i
+  avg <- seq(curr-6,curr,by=1)
+  covid_time_series_state[,curr] = rowMeans(covid_time_series_state[,avg]) 
+}
+```
+
+Idea to explore: Get count per 100,000 at county level. Calculate risk in the same way as NYT and then use the risks of all counties to calculate a risk by state. NYT does this, averaging counts per 2 weeks. This is convenient for our survey given the big window of interview. 
+
+Get covid averages for each week:
+
+```{r}
+w22 <- data.frame("STATE" = covid_time_series_state$State,
+                  "COVID_RATE" = rowMeans(covid_time_series_state[,seq(grep("X1.6.21",colnames(covid_time_series_state)),
+                                             grep("X1.18.21",colnames(covid_time_series_state)),
+                                             by=1)]))
+w22$WEEK <- 22
+w23 <- data.frame("STATE" = covid_time_series_state$State,
+                  "COVID_RATE" = rowMeans(covid_time_series_state[,seq(grep("X1.20.21",colnames(covid_time_series_state)),
+                                             grep("X2.1.21",colnames(covid_time_series_state)),
+                                             by=1)]))
+w23$WEEK <- 23
+w24 <- data.frame("STATE" = covid_time_series_state$State,
+                  "COVID_RATE" = rowMeans(covid_time_series_state[,seq(grep("X2.3.21",colnames(covid_time_series_state)),
+                                             grep("X2.15.21",colnames(covid_time_series_state)),
+                                             by=1)]))
+w24$WEEK <- 24
+w25 <- data.frame("STATE" = covid_time_series_state$State,
+                  "COVID_RATE" = rowMeans(covid_time_series_state[,seq(grep("X2.17.21",colnames(covid_time_series_state)),
+                                             grep("X3.1.21",colnames(covid_time_series_state)),
+                                             by=1)]))
+w25$WEEK <- 25
+w26 <- data.frame("STATE" = covid_time_series_state$State,
+                  "COVID_RATE" = rowMeans(covid_time_series_state[,seq(grep("X3.3.21",colnames(covid_time_series_state)),
+                                             grep("X3.15.21",colnames(covid_time_series_state)),
+                                             by=1)]))
+w26$WEEK <- 26
+covid_rates_by_state <- rbind(w22,w23,w24,w25,w26)
+```
+
+
+Merge Pulse data and Covid rate data
+
+```{r}
+pulse <- merge(pulse, covid_rates_by_state, by=c("STATE","WEEK"))
+```
+
+
+###Vaccination rates in the state###
+
+Using people_vaccinate and creating people_vaccinated_per_hundred. This is the total number of people who have received at least one dose of the vaccine. The other one iis divided per 100 people in the total state population. 
+
+```{r}
+x <- getURL("https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/us_state_vaccinations.csv")
+vacc <- read.csv(text = x)
+vacc <- vacc %>% select(date,location,people_vaccinated,people_vaccinated_per_hundred)
+vacc <- vacc[vacc$location %in% pulse$STATE,]
+```
+
+```{r, message=FALSE, warning=FALSE}
+w22 <- vacc  %>% group_by(location) %>% slice(0:grep("2021-01-18",vacc$date))
+w22$WEEK <- 22
+w23 <- vacc %>% group_by(location)  %>% slice((grep("2021-01-20",vacc$date):grep("2021-02-01",vacc$date)))
+w23$WEEK <- 23
+w24 <- vacc %>% group_by(location)  %>% slice((grep("2021-02-03",vacc$date):grep("2021-02-15",vacc$date)))
+w24$WEEK <- 24
+w25 <- vacc %>% group_by(location)  %>% slice((grep("2021-02-17",vacc$date):grep("2021-03-01",vacc$date)))
+w25$WEEK <- 25
+w26 <- vacc %>% group_by(location)  %>% slice((grep("2021-03-03",vacc$date):grep("2021-03-15",vacc$date)))
+w26$WEEK <- 26
+```
+
+```{r}
+vacc <- rbind(w22,w23,w24,w25,w26)
+vacc <-  vacc %>% 
+  group_by(location,WEEK) %>% 
+  mutate(VACCINATED = mean(people_vaccinated,na.rm=TRUE),VACCINATED_PER_HUNDRED = mean(people_vaccinated_per_hundred, na.rm=TRUE)) %>% 
+  select(-people_vaccinated, -people_vaccinated_per_hundred, -date) %>% distinct() %>% rename(STATE = location)
+```
+
+```{r}
+pulse <- merge(pulse, vacc, by=c("STATE","WEEK"))
+```
+
+
+###Unemployment rate in state###
+
+```{r}
+x <- getURL("https://raw.githubusercontent.com/OpportunityInsights/EconomicTracker/main/data/Employment%20-%20State%20-%20Daily.csv")
+emp <- read.csv(text = x)
+emp <- emp[emp$year > 2020,]
+emp <- emp %>% rename(EST_ST = statefips)
+emp <- merge(emp,state_codes, by="EST_ST")
+emp_state <- emp %>% select(STATE, year, month, day, emp_combined)
+```
+
+```{r}
+w22 <- emp_state[emp_state$month == 1 & emp_state$day >= 6 & emp_state$day <= 18,]
+w23 <- emp_state[(emp_state$month == 1 & emp_state$day >= 20) | (emp_state$month == 2 & emp_state$day == 1),]
+w24 <- emp_state[emp_state$month == 2 & emp_state$day >= 3 & emp_state$day <= 15,]
+w25 <- emp_state[(emp_state$month == 2 & emp_state$day >= 17) | (emp_state$month == 3 & emp_state$day == 1),]
+w26 <- emp_state[emp_state$month == 3 & emp_state$day >= 3 & emp_state$day <= 15,]
+```
+
+```{r}
+w22$WEEK <- 22
+w23$WEEK <- 23
+w24$WEEK <- 24
+w25$WEEK <- 25
+w26$WEEK <- 26
+```
+
+```{r}
+emp_rates <- rbind(w22,w23,w24,w25,w26)
+emp_rates$emp_combined <- as.numeric(as.character(emp_rates$emp_combined))
+```
+
+```{r}
+emp_rates <-  emp_rates %>% 
+  group_by(STATE,WEEK) %>% 
+  mutate(EMP_RATE = mean(emp_combined,na.rm=TRUE)) %>% 
+  select(-emp_combined,-year,-month,-day) %>%
+  distinct()
+```
+
+
+```{r}
+pulse <- merge(pulse, emp_rates, by=c("STATE","WEEK"))
+```
+
+
+###Vaccination rate by demographic###
+
+https://covid.cdc.gov/covid-data-tracker/#vaccination-demographics-trends
+
+vars:
+people with at least one dose
+percent of group with at least one dose
+
+```{r}
+demographic_vacc <- read.csv("demographic_trends_vaccine.csv")
+demographic_vacc <- demographic_vacc %>% select(Date,Demographic.Group,People.with.at.least.one.dose,Percent.of.group.with.at.least.one.dose)
+```
+
+```{r}
+w22 <- demographic_vacc  %>% group_by(Demographic.Group) %>% slice(0:grep("2021-01-18",demographic_vacc$Date))
+w22$WEEK <- 22
+w23 <- demographic_vacc %>% group_by(Demographic.Group)  %>% slice((grep("2021-01-20",demographic_vacc$Date):grep("2021-02-01",demographic_vacc$Date)))
+w23$WEEK <- 23
+w24 <- demographic_vacc %>% group_by(Demographic.Group)  %>% slice((grep("2021-02-03",demographic_vacc$Date):grep("2021-02-15",demographic_vacc$Date)))
+w24$WEEK <- 24
+w25 <- demographic_vacc %>% group_by(Demographic.Group)  %>% slice((grep("2021-02-17",demographic_vacc$Date):grep("2021-03-01",demographic_vacc$Date)))
+w25$WEEK <- 25
+w26 <- demographic_vacc %>% group_by(Demographic.Group)  %>% slice((grep("2021-03-03",demographic_vacc$Date):grep("2021-03-15",demographic_vacc$Date)))
+w26$WEEK <- 26
+```
+
+```{r}
+demographic_vacc <- rbind(w22,w23,w24,w25,w26)
+demographic_vacc <-  demographic_vacc %>% 
+  group_by(Demographic.Group,WEEK) %>% 
+  mutate(num_dem_vacc = mean(People.with.at.least.one.dose,na.rm=TRUE),
+         percent_dem_vacc = mean(Percent.of.group.with.at.least.one.dose, na.rm=TRUE)) %>% 
+  select(-Date,-People.with.at.least.one.dose,-Percent.of.group.with.at.least.one.dose) %>% 
+  distinct()
+```
+
+Adding demographic variables to Pulse data. 
+Using hot deck imputations
+
+```{r}
+age_vars <- c("Ages_18-29_yrs","Ages_30-39_yrs","Ages_40-49_yrs","Ages_50-64_yrs","Ages_65-74_yrs","Ages_75+_yrs")
+race_eth_vars <- c("Race_eth_Hispanic","Race_eth_NHAsian","Race_eth_NHBlack","Race_eth_NHMult_Oth","Race_eth_NHWhite")
+sex_vars <- c("Sex_Female","Sex_Male")
+```
+
+```{r}
+age_dem <- demographic_vacc[demographic_vacc$Demographic.Group %in% age_vars,] %>% rename("Age_dem_group" = "Demographic.Group")
+race_eth_dem <- demographic_vacc[demographic_vacc$Demographic.Group %in% race_eth_vars,] %>% rename("race_dem_group" = "Demographic.Group")
+sex_dem <- demographic_vacc[demographic_vacc$Demographic.Group %in% sex_vars,] %>% rename("sex_dem_group" = "Demographic.Group")
+```
+
+Merging age
+
+```{r}
+pulse$AGE <- 2021 - pulse$TBIRTH_YEAR
+pulse[pulse$AGE >= 18 & pulse$AGE <= 29,]$Age_dem_group <- "Ages_18-29_yrs"
+pulse[pulse$AGE >= 30 & pulse$AGE <= 39,]$Age_dem_group <- "Ages_30-39_yrs"
+pulse[pulse$AGE >= 40 & pulse$AGE <= 49,]$Age_dem_group <- "Ages_40-39_yrs"
+pulse[pulse$AGE >= 50 & pulse$AGE <= 64,]$Age_dem_group <- "Ages_50-64_yrs"
+pulse[pulse$AGE >= 65 & pulse$AGE <= 74,]$Age_dem_group <- "Ages_65-74_yrs"
+pulse[pulse$AGE >= 75,]$Age_dem_group <- "Ages_75+_yrs"
+```
+
+```{r}
+pulse <- merge(pulse,age_dem,by=c("WEEK","Age_dem_group")) %>% rename("num_vaccine_by_age" = "num_dem_vacc",
+                                                            "perc_vacc_in_age_group" = "percent_dem_vacc")
+```
+
+Merging race and ethnicity data
+
+Non-hispanic white: RHISPANIC == 1 & RRACE == 1
+NH Black - RHISPANIC == 1 & RRACE == 2
+NH Asian - RHISPANIC == 1 & RRACE == 3
+NH Multiple/Other: RHISPANIC == 1 & RRACE == 4
+Hispanic: RHISPANIC == 2
+
+```{r}
+pulse$race_dem_group <- NA
+pulse[pulse$RHISPANIC == 1 & pulse$RRACE == 1,]$race_dem_group <- "Race_eth_NHWhite"
+pulse[pulse$RHISPANIC == 1 & pulse$RRACE == 2,]$race_dem_group <- "Race_eth_NHBlack"
+pulse[pulse$RHISPANIC == 1 & pulse$RRACE == 3,]$race_dem_group <- "Race_eth_NHAsian"
+pulse[pulse$RHISPANIC == 1 & pulse$RRACE == 4,]$race_dem_group <- "Race_eth_NHMult_Oth"
+pulse[pulse$RHISPANIC == 2,]$race_dem_group <- "Race_eth_Hispanic"
+```
+
+```{r}
+pulse <- merge(pulse,race_eth_dem,by=c("WEEK","race_dem_group")) %>% rename("num_vaccine_by_race" = "num_dem_vacc",
+                                                            "perc_vacc_in_race_group" = "percent_dem_vacc")
+```
+
+
+Merging by sex
+
+```{r}
+pulse$sex_dem_group <- NA
+pulse[pulse$EGENDER == 1,]$sex_dem_group <- "Sex_Male"
+pulse[pulse$EGENDER == 2,]$sex_dem_group <- "Sex_Female"
+```
+
+
+```{r}
+pulse <- merge(pulse,sex_dem,by=c("WEEK","sex_dem_group")) %>% rename("num_vaccine_by_sex" = "num_dem_vacc",
+                                                            "perc_vacc_in_sex_group" = "percent_dem_vacc")
+```
+
+
+
+
+
+
