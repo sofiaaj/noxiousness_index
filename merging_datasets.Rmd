@@ -4,6 +4,8 @@ library(ggplot2)
 library(dplyr)
 library(RCurl)
 library("readxl")
+library(RJSONIO)
+library("jsonlite")
 ```
 
 Pulse variables
@@ -336,7 +338,6 @@ pulse[pulse$EGENDER == 2,]$sex_dem_group <- "Sex_Female"
 pulse <- merge(pulse,sex_dem,by=c("WEEK","sex_dem_group")) %>% rename("num_vaccine_by_sex" = "num_dem_vacc",
                                                             "perc_vacc_in_sex_group" = "percent_dem_vacc")
 ```
-
 
 
 
