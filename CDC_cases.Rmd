@@ -1,0 +1,61 @@
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+```
+
+```{r}
+cdc <- read.csv("COVID-19_Case_Surveillance_Public_Use_Data_with_Geography.csv")
+```
+
+```{r}
+demo_counts <- cdc %>% count(case_month,res_state,age_group,sex,race,ethnicity)
+```
+
+```{r}
+demo_counts_april <- demo_counts[demo_counts$case_month == "2021-04",]
+write.csv(demo_counts_april,"April_CDC_data.csv")
+```
+
+```{r}
+age <- demo_counts_april %>% group_by(res_state,age_group) %>% summarise(Total = sum(n))
+sex <- demo_counts_april %>% group_by(res_state,sex) %>% summarise(Total = sum(n))
+race <- demo_counts_april %>% group_by(res_state,race) %>% summarise(Total = sum(n))
+ethnicity <- demo_counts_april %>% group_by(res_state,ethnicity) %>% summarise(Total = sum(n))
+```
+
+```{r}
+age_no_na <- age %>% filter(age_group != "Missing" | !is.na(age_group)) %>% group_by(res_state) %>% summarise("Age Info" = sum(Total))
+age_na <- age %>% filter(age_group == "Missing" | is.na(age_group)) %>% group_by(res_state) %>% summarise("Missing Age" = sum(Total))
+age_sum <- merge(age_no_na,age_na,by="res_state")
+age_sum$'Percentage Missing Age' <- round(age_sum$`Missing Age` / (age_sum$`Missing Age` + age_sum$`Age Info`),digits=2)
+```
+
+```{r}
+sex_no_na <- sex %>% filter(sex != "Missing" | !is.na(sex)) %>% group_by(res_state) %>% summarise("Sex Info" = sum(Total))
+sex_na <- sex %>% filter(sex == "Missing" | is.na(sex)) %>% group_by(res_state) %>% summarise("Missing Sex" = sum(Total))
+sex_sum <- merge(sex_no_na,sex_na,by="res_state")
+sex_sum$'Percentage Missing Sex' <- round(sex_sum$`Missing Sex` / (sex_sum$`Sex Info` + sex_sum$`Missing Sex`),digits=2)
+```
+
+```{r}
+race_no_na <- race %>% filter(race != "Missing" | !is.na(race)) %>% group_by(res_state) %>% summarise("Race Info" = sum(Total))
+race_na <- race %>% filter(race == "Missing" | is.na(race)) %>% group_by(res_state) %>% summarise("Missing Race" = sum(Total))
+race_sum <- merge(race_no_na,race_na,by="res_state")
+race_sum$'Percentage Missing Race' <- round(race_sum$`Missing Race` / (race_sum$`Race Info` + race_sum$`Missing Race`),digits=2)
+```
+
+```{r}
+ethnicity_no_na <- ethnicity %>% filter(ethnicity != "Missing" | !is.na(ethnicity)) %>% group_by(res_state) %>% summarise("Ethnicity Info" = sum(Total))
+ethnicity_na <- ethnicity %>% filter(ethnicity == "Missing" | is.na(ethnicity)) %>% group_by(res_state) %>% summarise("Missing Ethnicity" = sum(Total))
+ethnicity_sum <- merge(ethnicity_no_na,ethnicity_na,by="res_state")
+ethnicity_sum$'Percentage Missing Ethnicity' <- round(ethnicity_sum$`Missing Ethnicity` / (ethnicity_sum$`Ethnicity Info` + ethnicity_sum$`Missing Ethnicity`),digits=2)
+```
+
+```{r}
+summary <- merge(age_sum,(merge(sex_sum,merge(race_sum,ethnicity_sum,by="res_state"),by="res_state")),by="res_state")
+```
+
+```{r}
+write.csv(summary,"summary_CDC.csv")
+```
+

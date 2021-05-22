@@ -40,8 +40,6 @@ Vaccination rates in the state (Done)
 Unemployment rate in state (Done)
 
 Vaccination rate by demographic (Done)
-Covid rates by demographic 
-
 
 Unemployment rate in industry
 Covid rates in the county
@@ -339,6 +337,10 @@ pulse <- merge(pulse,sex_dem,by=c("WEEK","sex_dem_group")) %>% rename("num_vacci
                                                             "perc_vacc_in_sex_group" = "percent_dem_vacc")
 ```
 
+
+```{r}
+write.csv(pulse,"noxiousness_df.csv")
+```
 
 
 
